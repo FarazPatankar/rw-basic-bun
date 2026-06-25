@@ -9,6 +9,9 @@ const server = Bun.serve({
     // respond with JSON
     if (path === "/api") return Response.json({ some: "buns", for: "you" });
 
+    // health check
+    if (path === "/health") return Response.json({ status: "ok" }, { status: 200 });
+
     // 404s
     return new Response("Page not found", { status: 404 });
   }
