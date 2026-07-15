@@ -4,7 +4,7 @@ const server = Bun.serve({
     const path = new URL(req.url).pathname;
 
     // respond with text/html
-    if (path === "/") return new Response("Welcome to Bun!");
+    if (path === "/") return new Response("Welcome to Bun!!!");
 
     // respond with JSON
     if (path === "/api") return Response.json({ some: "buns", for: "you" });
