@@ -9,6 +9,9 @@ const server = Bun.serve({
     // respond with JSON
     if (path === "/api") return Response.json({ some: "buns", for: "you" });
 
+    // hello endpoint
+    if (path === "/hello") return new Response("world");
+
     // test endpoint
     if (path === "/test") return new Response("test successful");
 
