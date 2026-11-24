@@ -1,7 +1,34 @@
 const pages = [
   { path: "/api", title: "API", description: "A JSON response with some buns, for you.", tag: "JSON" },
   { path: "/test", title: "Test", description: "A plain-text check that the server is up.", tag: "TEXT" },
+  { path: "/count", title: "Count", description: "Row counts for every table in the database.", tag: "JSON" },
 ];
+
+let db: InstanceType<typeof Bun.SQL> | undefined;
+function getDb() {
+  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is not set");
+  db ??= new Bun.SQL(process.env.DATABASE_URL, { connectionTimeout: 5, max: 5 });
+  return db;
+}
+
+// Quote a Postgres identifier: wrap in double quotes, double any embedded quotes.
+const quoteIdent = (name: string) => `"${name.replaceAll('"', '""')}"`;
+
+async function tableCounts(): Promise<Record<string, number>> {
+  const sql = getDb();
+  const tables: { table_name: string }[] = await sql`
+    SELECT table_name FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+    ORDER BY table_name`;
+  const counts: Record<string, number> = {};
+  for (const { table_name } of tables) {
+    const [row] = await sql.unsafe(
+      `SELECT COUNT(*)::bigint AS count FROM public.${quoteIdent(table_name)}`,
+    );
+    counts[table_name] = Number(row.count);
+  }
+  return counts;
+}
 
 const homePage = `<!doctype html>
 <html lang="en">
@@ -114,6 +141,19 @@ const server = Bun.serve({
 
     // test endpoint
     if (path === "/test") return new Response("test successful");
+
+    // row count per table in the public schema
+    if (path === "/count" && req.method === "GET") {
+      try {
+        return Response.json(await tableCounts());
+      } catch (err) {
+        console.error("/count failed:", err);
+        return Response.json(
+          { error: "Database unreachable", detail: err instanceof Error ? err.message : String(err) },
+          { status: 500 },
+        );
+      }
+    }
 
     // 404s
     return new Response("Page not found", { status: 404 });
