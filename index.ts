@@ -98,6 +98,37 @@ ${pages
   </body>
 </html>`;
 
+// Lazily created so the server still starts without a database.
+let db: InstanceType<typeof Bun.SQL> | undefined;
+function getDb() {
+  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is not set");
+  db ??= new Bun.SQL(process.env.DATABASE_URL, { connectionTimeout: 5 });
+  return db;
+}
+
+const quoteIdent = (name: string) => `"${name.replaceAll('"', '""')}"`;
+
+async function countRows() {
+  const sql = getDb();
+  const tables: { schema: string; name: string }[] = await sql`
+    SELECT table_schema AS schema, table_name AS name
+    FROM information_schema.tables
+    WHERE table_type = 'BASE TABLE'
+      AND table_schema NOT IN ('pg_catalog', 'information_schema')
+      AND table_schema NOT LIKE 'pg\_toast%'
+      AND table_schema NOT LIKE 'pg\_temp%'
+    ORDER BY table_schema, table_name`;
+
+  const counts: Record<string, number> = {};
+  for (const t of tables) {
+    const [row] = await sql.unsafe(
+      `SELECT COUNT(*)::bigint AS count FROM ${quoteIdent(t.schema)}.${quoteIdent(t.name)}`,
+    );
+    counts[t.schema === "public" ? t.name : `${t.schema}.${t.name}`] = Number(row.count);
+  }
+  return counts;
+}
+
 const server = Bun.serve({
   port: Number(process.env.PORT) || 1234,
   async fetch(req) {
@@ -114,6 +145,19 @@ const server = Bun.serve({
 
     // test endpoint
     if (path === "/test") return new Response("test successful");
+
+    // row count per table in the Postgres database
+    if (path === "/count" && req.method === "GET") {
+      try {
+        return Response.json(await countRows());
+      } catch (err) {
+        console.error("/count failed:", err);
+        return Response.json(
+          { error: "Database unavailable", detail: err instanceof Error ? err.message : String(err) },
+          { status: 500 },
+        );
+      }
+    }
 
     // 404s
     return new Response("Page not found", { status: 404 });
