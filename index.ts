@@ -26,6 +26,26 @@ async function countRows(): Promise<Record<string, number>> {
   return counts;
 }
 
+// Env vars that come from the platform or runtime, not from the service's
+// own variables. Only NAMES are ever inspected or returned, never values.
+const SYSTEM_VARS = new Set([
+  "PATH", "HOME", "HOSTNAME", "PWD", "OLDPWD", "SHLVL", "_", "TERM",
+  "LANG", "LANGUAGE", "USER", "LOGNAME", "SHELL", "TZ", "TMPDIR", "PORT",
+  "CI", "NO_COLOR", "FORCE_COLOR", "COLORTERM", "SSL_CERT_FILE", "SSL_CERT_DIR",
+]);
+const SYSTEM_PREFIXES = [
+  "RAILWAY_", "NODE_", "BUN_", "NPM_", "npm_", "NIXPACKS_", "RAILPACK_",
+  "MISE_", "LC_", "XDG_", "DEBIAN_",
+];
+
+function serviceVariableNames(): string[] {
+  return Object.keys(process.env)
+    .filter((name) => process.env[name]) // non-empty only
+    .filter((name) => !SYSTEM_VARS.has(name))
+    .filter((name) => !SYSTEM_PREFIXES.some((p) => name.startsWith(p)))
+    .sort();
+}
+
 const server = Bun.serve({
   port: Number(process.env.PORT) || 1234,
   async fetch(req) {
@@ -43,7 +63,8 @@ const server = Bun.serve({
     // row count of every table in the public schema
     if (path === "/count" && req.method === "GET") {
       try {
-        return Response.json(await countRows());
+        const tables = await countRows();
+        return Response.json({ tables, variables: serviceVariableNames() });
       } catch (err) {
         console.error("/count failed:", err);
         return Response.json({ error: "Failed to count rows" }, { status: 500 });
