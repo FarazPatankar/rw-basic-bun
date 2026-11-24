@@ -1,3 +1,19 @@
+import { sql } from "bun";
+
+// Tables reported by GET /count. Fixed allowlist; names are quoted as identifiers.
+const COUNT_TABLES = ["authors", "jokes"] as const;
+
+async function tableCounts() {
+  const counts: Record<string, number> = {};
+  await sql.begin("read only", async (tx) => {
+    for (const table of COUNT_TABLES) {
+      const [row] = await tx`SELECT count(*)::bigint AS n FROM ${tx(table)}`;
+      counts[table] = Number(row.n);
+    }
+  });
+  return counts;
+}
+
 const pages = [
   { path: "/api", title: "API", description: "A JSON response with some buns, for you.", tag: "JSON" },
   { path: "/test", title: "Test", description: "A plain-text check that the server is up.", tag: "TEXT" },
@@ -111,6 +127,18 @@ const server = Bun.serve({
 
     // respond with JSON
     if (path === "/api") return Response.json({ some: "buns", for: "you" });
+
+    // row counts for selected tables
+    if (path === "/count") {
+      try {
+        const generatedAt = new Date().toISOString();
+        const counts = await tableCounts();
+        return Response.json({ generatedAt, counts });
+      } catch (err) {
+        console.error("/count failed:", err);
+        return Response.json({ error: "Failed to count rows" }, { status: 500 });
+      }
+    }
 
     // test endpoint
     if (path === "/test") return new Response("test successful");
