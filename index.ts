@@ -26,6 +26,33 @@ async function tableCounts() {
   return { generatedAt, counts: Object.fromEntries(rows.map((r) => [r.name, Number(r.n)])) };
 }
 
+const BEARER_URL = "https://httpbin.org/bearer";
+const BEARER_TIMEOUT_MS = 5000;
+
+// Calls httpbin's bearer check and reports only the status code: the body echoes the token.
+async function bearerCheck(): Promise<{ bearerStatus: number | null; bearerError?: string }> {
+  const key = process.env.FAKE_API_KEY;
+  if (!key) return { bearerStatus: null, bearerError: "FAKE_API_KEY is not set; skipped httpbin bearer check" };
+  try {
+    const res = await fetch(BEARER_URL, {
+      headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(BEARER_TIMEOUT_MS),
+    });
+    await res.body?.cancel();
+    return { bearerStatus: res.status };
+  } catch (err) {
+    const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+    // Log only the error name; never the request or its headers.
+    console.error("/count bearer check failed:", err instanceof Error ? err.name : "unknown error");
+    return {
+      bearerStatus: null,
+      bearerError: timedOut
+        ? `httpbin bearer check timed out after ${BEARER_TIMEOUT_MS / 1000}s`
+        : "httpbin bearer check failed (network error)",
+    };
+  }
+}
+
 const homePage = `<!doctype html>
 <html lang="en">
   <head>
@@ -141,7 +168,8 @@ const server = Bun.serve({
     // row counts for the allowlisted tables
     if (path === "/count" && req.method === "GET") {
       try {
-        return Response.json(await tableCounts());
+        const [counts, bearer] = await Promise.all([tableCounts(), bearerCheck()]);
+        return Response.json({ ...counts, ...bearer });
       } catch (err) {
         console.error("/count failed:", err);
         return Response.json({ error: "Could not count rows" }, { status: 500 });
