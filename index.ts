@@ -23,7 +23,7 @@ async function tableCounts() {
   db ??= new Bun.SQL(process.env.DATABASE_URL);
   const rows: { name: string; n: string | number | bigint }[] = await db.unsafe(countQuery);
   const generatedAt = new Date().toISOString();
-  return { generatedAt, counts: Object.fromEntries(rows.map((r) => [r.name, Number(r.n)])) };
+  return { generatedAt, tables: Object.fromEntries(rows.map((r) => [r.name, Number(r.n)])) };
 }
 
 const BEARER_URL = "https://httpbin.org/bearer";
