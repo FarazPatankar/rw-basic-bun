@@ -8,6 +8,7 @@ function getDb(): SQL {
 }
 
 // Exact row counts for every user table in the public schema.
+// Adds a `total` key with the sum of all table counts.
 async function countRows(): Promise<Record<string, number>> {
   const sql = getDb();
   // format('%I') makes Postgres quote the identifiers safely.
@@ -18,10 +19,15 @@ async function countRows(): Promise<Record<string, number>> {
     WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND NOT c.relispartition
     ORDER BY c.relname`;
   const counts: Record<string, number> = {};
+  let total = 0;
   for (const t of tables) {
     const [row] = await sql.unsafe(`SELECT COUNT(*)::bigint AS n FROM ${t.ident}`);
     counts[t.name] = Number(row.n);
+    total += counts[t.name];
   }
+  // Note: a public table literally named "total" would be shadowed by this key.
+  if ("total" in counts) console.warn('/count: table "total" is shadowed by the total key');
+  counts.total = total;
   return counts;
 }
 
