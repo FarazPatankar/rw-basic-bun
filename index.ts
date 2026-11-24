@@ -1,6 +1,7 @@
 const pages = [
   { path: "/api", title: "API", description: "A JSON response with some buns, for you.", tag: "JSON" },
   { path: "/test", title: "Test", description: "A plain-text check that the server is up.", tag: "TEXT" },
+  { path: "/count", title: "Count", description: "Row counts for every table in the Postgres database.", tag: "JSON" },
 ];
 
 const homePage = `<!doctype html>
