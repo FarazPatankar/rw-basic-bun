@@ -1,3 +1,29 @@
+import { SQL } from "bun";
+
+// Tables reported by GET /count. Fixed allowlist: no request input reaches the SQL.
+const COUNT_TABLES = ["authors", "jokes"] as const;
+
+let db: SQL | undefined;
+function getDb() {
+  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is not set");
+  return (db ??= new SQL(process.env.DATABASE_URL));
+}
+
+// Quote a Postgres identifier: wrap in double quotes, doubling any embedded quote.
+const quoteIdent = (name: string) => `"${name.replaceAll('"', '""')}"`;
+
+async function tableCounts() {
+  const sql = getDb();
+  const counts: Record<string, number> = {};
+  for (const table of COUNT_TABLES) {
+    const [row] = await sql.unsafe(
+      `SELECT count(*)::bigint AS n FROM public.${quoteIdent(table)}`,
+    );
+    counts[table] = Number(row.n);
+  }
+  return counts;
+}
+
 const pages = [
   { path: "/api", title: "API", description: "A JSON response with some buns, for you.", tag: "JSON" },
   { path: "/test", title: "Test", description: "A plain-text check that the server is up.", tag: "TEXT" },
@@ -111,6 +137,16 @@ const server = Bun.serve({
 
     // respond with JSON
     if (path === "/api") return Response.json({ some: "buns", for: "you" });
+
+    // row counts per allowlisted table
+    if (path === "/count" && req.method === "GET") {
+      try {
+        return Response.json(await tableCounts());
+      } catch (err) {
+        console.error("/count failed:", err instanceof Error ? err.message : err);
+        return Response.json({ error: "Failed to count rows" }, { status: 500 });
+      }
+    }
 
     // test endpoint
     if (path === "/test") return new Response("test successful");
