@@ -1,6 +1,34 @@
+import { SQL } from "bun";
+
+let db: SQL | undefined;
+const getDb = () => (db ??= new SQL(process.env.DATABASE_URL!, { connectionTimeout: 5, max: 4 }));
+
+const quoteIdent = (name: string) => `"${name.replaceAll('"', '""')}"`;
+
+// Exact row count for every base table outside the system schemas.
+async function countRows(): Promise<Record<string, number>> {
+  const sql = getDb();
+  const tables: { table_schema: string; table_name: string }[] = await sql`
+    SELECT table_schema, table_name FROM information_schema.tables
+    WHERE table_type = 'BASE TABLE'
+      AND table_schema NOT IN ('pg_catalog', 'information_schema')
+      AND table_schema NOT LIKE 'pg\_%'
+    ORDER BY table_schema, table_name`;
+  const counts: Record<string, number> = {};
+  for (const { table_schema, table_name } of tables) {
+    const [{ count }] = await sql.unsafe(
+      `SELECT COUNT(*) AS count FROM ${quoteIdent(table_schema)}.${quoteIdent(table_name)}`,
+    );
+    const key = table_schema === "public" ? table_name : `${table_schema}.${table_name}`;
+    counts[key] = Number(count);
+  }
+  return counts;
+}
+
 const pages = [
   { path: "/api", title: "API", description: "A JSON response with some buns, for you.", tag: "JSON" },
   { path: "/test", title: "Test", description: "A plain-text check that the server is up.", tag: "TEXT" },
+  { path: "/count", title: "Count", description: "Row counts for every table in the database.", tag: "JSON" },
 ];
 
 const homePage = `<!doctype html>
@@ -114,6 +142,21 @@ const server = Bun.serve({
 
     // test endpoint
     if (path === "/test") return new Response("test successful");
+
+    // row counts per table
+    if (path === "/count" && req.method === "GET") {
+      if (!process.env.DATABASE_URL)
+        return Response.json({ error: "DATABASE_URL is not set" }, { status: 500 });
+      try {
+        return Response.json(await countRows());
+      } catch (err) {
+        console.error("/count failed:", err);
+        return Response.json(
+          { error: "Database unreachable", detail: err instanceof Error ? err.message : String(err) },
+          { status: 500 },
+        );
+      }
+    }
 
     // 404s
     return new Response("Page not found", { status: 404 });
