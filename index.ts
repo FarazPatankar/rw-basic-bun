@@ -1,6 +1,34 @@
+import { SQL } from "bun";
+
+// Tables exposed by GET /count. Only these fixed names ever reach SQL.
+const COUNT_TABLES = ["authors", "jokes"] as const;
+
+let db: SQL | undefined;
+function getDb() {
+  if (!process.env.DATABASE_URL) return undefined;
+  return (db ??= new SQL(process.env.DATABASE_URL));
+}
+
+const quoteIdent = (name: string) => `"${name.replace(/"/g, '""')}"`;
+
+async function countRows() {
+  const sql = getDb();
+  if (!sql) throw new Error("DATABASE_URL is not set");
+  const entries = await Promise.all(
+    COUNT_TABLES.map(async (table) => {
+      const [row] = await sql.unsafe(
+        `SELECT count(*)::int AS n FROM public.${quoteIdent(table)}`,
+      );
+      return [table, row.n as number] as const;
+    }),
+  );
+  return Object.fromEntries(entries);
+}
+
 const pages = [
   { path: "/api", title: "API", description: "A JSON response with some buns, for you.", tag: "JSON" },
   { path: "/test", title: "Test", description: "A plain-text check that the server is up.", tag: "TEXT" },
+  { path: "/count", title: "Count", description: "Row counts for the database tables.", tag: "JSON" },
 ];
 
 const homePage = `<!doctype html>
@@ -111,6 +139,16 @@ const server = Bun.serve({
 
     // respond with JSON
     if (path === "/api") return Response.json({ some: "buns", for: "you" });
+
+    // row counts per table
+    if (path === "/count" && req.method === "GET") {
+      try {
+        return Response.json(await countRows());
+      } catch (err) {
+        console.error("/count failed:", err);
+        return Response.json({ error: "Could not count rows" }, { status: 500 });
+      }
+    }
 
     // test endpoint
     if (path === "/test") return new Response("test successful");
