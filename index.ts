@@ -1,3 +1,32 @@
+import { SQL } from "bun";
+
+// Lazily created so routes that don't touch the DB work without DATABASE_URL.
+let db: SQL | undefined;
+function getDb(): SQL {
+  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is not set");
+  return (db ??= new SQL(process.env.DATABASE_URL));
+}
+
+const quoteIdent = (name: string) => `"${name.replaceAll('"', '""')}"`;
+
+async function countRows(): Promise<Record<string, number>> {
+  const sql = getDb();
+  const tables: { table_name: string }[] = await sql`
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+    ORDER BY table_name
+  `;
+  const counts: Record<string, number> = {};
+  for (const { table_name } of tables) {
+    const [row] = await sql.unsafe(
+      `SELECT COUNT(*)::bigint AS n FROM public.${quoteIdent(table_name)}`
+    );
+    counts[table_name] = Number(row.n);
+  }
+  return counts;
+}
+
 const server = Bun.serve({
   port: Number(process.env.PORT) || 1234,
   async fetch(req) {
@@ -11,6 +40,16 @@ const server = Bun.serve({
 
     // test endpoint
     if (path === "/test") return new Response("test successful");
+
+    // row counts for every table in the public schema
+    if (path === "/count" && req.method === "GET") {
+      try {
+        return Response.json(await countRows());
+      } catch (err) {
+        console.error("/count failed:", err);
+        return Response.json({ error: "Failed to count rows" }, { status: 500 });
+      }
+    }
 
     // 404s
     return new Response("Page not found", { status: 404 });
