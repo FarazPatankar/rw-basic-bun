@@ -143,7 +143,8 @@ const server = Bun.serve({
     // row counts per table
     if (path === "/count" && req.method === "GET") {
       try {
-        return Response.json(await countRows());
+        const counts = await countRows();
+        return Response.json({ generatedAt: new Date().toISOString(), counts });
       } catch (err) {
         console.error("/count failed:", err);
         return Response.json({ error: "Could not count rows" }, { status: 500 });
