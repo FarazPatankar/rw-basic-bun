@@ -22,7 +22,8 @@ async function tableCounts() {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is not set");
   db ??= new Bun.SQL(process.env.DATABASE_URL);
   const rows: { name: string; n: string | number | bigint }[] = await db.unsafe(countQuery);
-  return Object.fromEntries(rows.map((r) => [r.name, Number(r.n)]));
+  const generatedAt = new Date().toISOString();
+  return { generatedAt, counts: Object.fromEntries(rows.map((r) => [r.name, Number(r.n)])) };
 }
 
 const homePage = `<!doctype html>
