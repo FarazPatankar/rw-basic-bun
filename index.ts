@@ -1,7 +1,29 @@
 const pages = [
   { path: "/api", title: "API", description: "A JSON response with some buns, for you.", tag: "JSON" },
   { path: "/test", title: "Test", description: "A plain-text check that the server is up.", tag: "TEXT" },
+  { path: "/count", title: "Count", description: "Row counts for the database tables.", tag: "JSON" },
 ];
+
+// Fixed allowlist of tables reported by /count (JSON key -> schema/table).
+const COUNT_TABLES = [
+  { key: "authors", schema: "public", table: "authors" },
+  { key: "jokes", schema: "public", table: "jokes" },
+] as const;
+
+const quoteIdent = (name: string) => `"${name.replaceAll('"', '""')}"`;
+
+const countQuery = COUNT_TABLES.map(
+  (t) => `SELECT '${t.key.replaceAll("'", "''")}' AS name, COUNT(*)::bigint AS n FROM ${quoteIdent(t.schema)}.${quoteIdent(t.table)}`,
+).join(" UNION ALL ");
+
+let db: InstanceType<typeof Bun.SQL> | undefined;
+
+async function tableCounts() {
+  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is not set");
+  db ??= new Bun.SQL(process.env.DATABASE_URL);
+  const rows: { name: string; n: string | number | bigint }[] = await db.unsafe(countQuery);
+  return Object.fromEntries(rows.map((r) => [r.name, Number(r.n)]));
+}
 
 const homePage = `<!doctype html>
 <html lang="en">
@@ -114,6 +136,16 @@ const server = Bun.serve({
 
     // test endpoint
     if (path === "/test") return new Response("test successful");
+
+    // row counts for the allowlisted tables
+    if (path === "/count" && req.method === "GET") {
+      try {
+        return Response.json(await tableCounts());
+      } catch (err) {
+        console.error("/count failed:", err);
+        return Response.json({ error: "Could not count rows" }, { status: 500 });
+      }
+    }
 
     // 404s
     return new Response("Page not found", { status: 404 });
